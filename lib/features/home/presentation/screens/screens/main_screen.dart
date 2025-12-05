@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:voice_deepfake_shield/features/home/presentation/screens/screens/history_screen.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -59,6 +60,25 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      appBar: AppBar(
+  backgroundColor: Colors.transparent,
+  elevation: 0,
+  actions: [
+    IconButton(
+      onPressed: () {
+        Navigator.of(context).push(
+          PageRouteBuilder(
+            pageBuilder: (c, a, s) => const 
+            
+            HistoryScreen(),
+            transitionsBuilder: (c, a, s, child) => FadeTransition(opacity: a, child: child),
+          ),
+        );
+      },
+      icon: const Icon(Icons.history, size: 28),
+    ),
+  ],
+),
       backgroundColor: isSafe ? const Color(0xFFF8FAFF) : const Color(0xFFFFF0F0),
       body: SafeArea(
         child: Center( // <-- CENTRAGE GLOBAL
