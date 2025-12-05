@@ -1,3 +1,4 @@
+// lib/features/home/widgets/shield_widget.dart
 import 'package:flutter/material.dart';
 
 class ShieldWidget extends StatelessWidget {
@@ -6,24 +7,24 @@ class ShieldWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 200,
-      height: 200,
+      width: 230,
+      height: 230,
       decoration: BoxDecoration(
-        color: const Color(0xFF1E88E5),
         shape: BoxShape.circle,
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF1976D2), Color(0xFF42A5F5), Color(0xFF64B5F6)],
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.blue.withOpacity(0.2),
-            blurRadius: 30,
-            spreadRadius: 10,
+            color: const Color(0xFF42A5F5).withOpacity(0.7),
+            blurRadius: 50,
+            spreadRadius: 15,
           ),
         ],
       ),
-      child: const Icon(
-        Icons.shield,
-        size: 110,
-        color: Colors.white,
-      ),
+      child: const Icon(Icons.shield, size: 130, color: Colors.white),
     );
   }
 }
