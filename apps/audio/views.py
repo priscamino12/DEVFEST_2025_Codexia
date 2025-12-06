@@ -1,40 +1,17 @@
-"""
-# apps/audio/views.py
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-from .serializers import AudioUploadSerializer
-from .inference import analyze_audio
-from apps.notifications.models import Notification
-from django.core.files.storage import default_storage
-
-class AudioUploadView(APIView):
-    def post(self, request):
-        serializer = AudioUploadSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        f = serializer.validated_data["file"]
-        path = default_storage.save(f"uploads/audio/{f.name}", f)
-        fullpath = default_storage.path(path) if hasattr(default_storage, "path") else path
-        result = analyze_audio(fullpath)
-        # create notification example
-        Notification.objects.create(
-            title="Audio analysé",
-            message=f"Fichier {f.name} analysé. score={result['deepfake_score']}"
-        )
-        return Response(result, status=status.HTTP_200_OK)
-"""
 # apps/audio/views.py (complément)
 import os
 import tempfile
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.parsers import MultiPartParser, FormParser
 
 from .serializers import AudioUploadSerializer
 from .inference import analyze_audio
 
-
-class AudioUploadView(APIView):
+class AudioAnalysisView(APIView):
+    # Indispensable pour gérer l'upload de fichiers
+    parser_classes = (MultiPartParser, FormParser)
 
     def post(self, request, *args, **kwargs):
         serializer = AudioUploadSerializer(data=request.data)
@@ -42,20 +19,30 @@ class AudioUploadView(APIView):
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        audio_file = serializer.validated_data["audio"]
+        uploaded_file = serializer.validated_data["file"]
 
-        # save tmp file
-        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(audio_file.name)[1]) as tmp:
-            for chunk in audio_file.chunks():
+        # 1. Sauvegarde temporaire du fichier sur le disque
+        # (Nécessaire car torchaudio lit depuis un chemin fichier, pas depuis la RAM directement)
+        suffix = os.path.splitext(uploaded_file.name)[1]
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            for chunk in uploaded_file.chunks():
                 tmp.write(chunk)
             tmp_path = tmp.name
 
         try:
+            # 2. Appel au moteur IA
             result = analyze_audio(tmp_path)
+            
+            # 3. Réponse succès
+            return Response(result, status=status.HTTP_200_OK)
+
         except Exception as e:
-            return Response({"error": str(e)}, status=500)
+            return Response(
+                {"error": "Erreur lors de l'analyse audio", "details": str(e)}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+            
         finally:
+            # 4. Nettoyage : On supprime toujours le fichier temporaire
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
-
-        return Response(result, status=200)

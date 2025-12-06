@@ -1,184 +1,88 @@
-"""
 # apps/audio/inference.py
-from transformers import Wav2Vec2Processor, Wav2Vec2ForCTC
 import torch
 import torchaudio
-
-# Charge once
-processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base-960h")
-model = Wav2Vec2ForCTC.from_pretrained("facebook/wav2vec2-base-960h")
-device = "cuda" if torch.cuda.is_available() else "cpu"
-model.to(device)
-model.eval()
-
-def analyze_audio(path: str) -> dict:
-    waveform, sr = torchaudio.load(path)
-    if sr != 16000:
-        waveform = torchaudio.functional.resample(waveform, sr, 16000)
-    if waveform.ndim > 1:
-        waveform = waveform.mean(dim=0)
-    inputs = processor(waveform.numpy(), sampling_rate=16000, return_tensors="pt", padding=True)
-    input_values = inputs.input_values.to(device)
-    with torch.no_grad():
-        logits = model(input_values).logits
-    predicted_ids = torch.argmax(logits, dim=-1)
-    transcription = processor.batch_decode(predicted_ids)[0]
-    # Placeholder deepfake score — remplacer par modèle spécialisé plus tard
-    deepfake_score = 0.5
-    return {"transcription": transcription, "deepfake_score": float(deepfake_score)}
-"""
-# apps/audio/inference.py (tel que fourni)
-import torch
-from torchcodec.decoders import FFmpegAudioDecoder
 from transformers import Wav2Vec2Processor, Wav2Vec2ForCTC
+import numpy as np
 
-# Chargement modèle une seule fois (performances)
-processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base-960h")
-model = Wav2Vec2ForCTC.from_pretrained("facebook/wav2vec2-base-960h")
-model.eval()
+# --- CHARGEMENT DU MODÈLE (Au démarrage) ---
+print("Chargement du modèle Wav2Vec2...")
+try:
+    PROCESSOR = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base-960h")
+    MODEL = Wav2Vec2ForCTC.from_pretrained("facebook/wav2vec2-base-960h")
+    MODEL.eval()
+    print("Modèle chargé avec succès.")
+except Exception as e:
+    print(f"FATAL ERROR lors du chargement du modèle : {e}")
 
-
-def load_audio(file_path: str):
+def load_and_preprocess_audio(file_path: str, target_sr: int = 16000):
     """
-    Décode un fichier audio avec FFmpegAudioDecoder (torchcodec).
-    Retourne : waveform (Tensor), sample_rate (int)
+    Charge un fichier audio, convertit en Mono et Resample à 16kHz.
     """
-    decoder = FFmpegAudioDecoder(
-        streams="0:a:0",
-        format="fltp",
-        sample_rate=16000,
-        channels=1,
-    )
-    out = decoder.decode(file_path)
+    # torchaudio gère automatiquement wav, mp3, flac via ffmpeg
+    waveform, sample_rate = torchaudio.load(file_path)
 
-    # out["audio"] → Tensor (channels, samples)
-    waveform = out["audio"].squeeze(0)  # (samples,)
-    sample_rate = out["sample_rate"]
+    # 1. Conversion Stéréo -> Mono (si nécessaire)
+    if waveform.shape[0] > 1:
+        waveform = torch.mean(waveform, dim=0, keepdim=True)
 
-    return waveform, sample_rate
+    # 2. Resampling vers 16000Hz (requis par Wav2Vec2)
+    if sample_rate != target_sr:
+        resampler = torchaudio.transforms.Resample(orig_freq=sample_rate, new_freq=target_sr)
+        waveform = resampler(waveform)
 
-
-def transcribe_audio(waveform: torch.Tensor, sample_rate: int):
-    """
-    Transcrit une waveform 16kHz avec wav2vec2.
-    """
-
-    # Normalisation
-    inputs = processor(
-        waveform,
-        sampling_rate=sample_rate,
-        return_tensors="pt",
-        padding=True
-    )
-
-    with torch.no_grad():
-        logits = model(inputs.input_values).logits
-
-    predicted_ids = torch.argmax(logits, dim=-1)
-    transcription = processor.batch_decode(predicted_ids)[0]
-
-    return transcription
-
-
-def compute_confidence(logits: torch.Tensor) -> float:
-    """
-    Calcule un score simple de confiance (softmax max).
-    """
-
-    probs = torch.softmax(logits, dim=-1)
-    confidence = float(probs.max().item())
-    return confidence
-
+    # On retire la dimension du channel pour avoir un tenseur (N_samples,)
+    return waveform.squeeze()
 
 def analyze_audio(file_path: str) -> dict:
     """
-    Lit, décode et analyse un fichier audio :
-    - Décode via torchcodec
-    - Transcription via wav2vec2
-    - Calcule un score de confiance
-
-    Retourne :
-    {
-        "transcription": str,
-        "confidence": float,
-        "sample_rate": int,
-        "duration_sec": float
-    }
+    Exécute le pipeline complet : Load -> Transcribe -> Score
     """
+    try:
+        # A. Préparation
+        waveform = load_and_preprocess_audio(file_path)
+        
+        # Sécurité : Si l'audio est trop court (< 0.1s), on rejette
+        if waveform.numel() < 1600: 
+             return {"error": "Audio trop court", "status": "failed"}
 
-    waveform, sample_rate = load_audio(file_path)
+        duration = len(waveform) / 16000
 
-    inputs = processor(
-        waveform,
-        sampling_rate=sample_rate,
-        return_tensors="pt",
-        padding=True
-    )
+        # B. Tokenization (Conversion audio -> format modèle)
+        inputs = PROCESSOR(
+            waveform, 
+            sampling_rate=16000, 
+            return_tensors="pt", 
+            padding=True
+        )
 
-    with torch.no_grad():
-        logits = model(inputs.input_values).logits
+        # C. Inférence
+        with torch.no_grad():
+            logits = MODEL(inputs.input_values).logits
 
-    predicted_ids = torch.argmax(logits, dim=-1)
-    transcription = processor.batch_decode(predicted_ids)[0].strip()
+        # D. Décodage (Logits -> Texte)
+        predicted_ids = torch.argmax(logits, dim=-1)
+        transcription = PROCESSOR.batch_decode(predicted_ids)[0]
 
-    confidence = compute_confidence(logits)
+        # E. Calcul de confiance (CORRIGÉ)
+        probs = torch.nn.functional.softmax(logits, dim=-1)
+        
+        # On récupère la probabilité maximale pour chaque pas de temps (frame)
+        # dim=-1 est CRUCIAL pour avoir un tuple (values, indices)
+        max_probs, _ = torch.max(probs, dim=-1) 
+        
+        # On fait la moyenne de ces probabilités maximales
+        confidence = float(max_probs.mean().item())
 
-    duration_sec = waveform.shape[0] / sample_rate
+        return {
+            "status": "success",
+            "transcription": transcription,
+            "confidence_score": round(confidence, 4),
+            "duration_seconds": round(duration, 2),
+            "is_deepfake": False # Placeholder logique
+        }
 
-    return {
-        "transcription": transcription,
-        "confidence": confidence,
-        "sample_rate": sample_rate,
-        "duration_sec": duration_sec
-    }
-
-"""
-import torch
-from transformers import Wav2Vec2Processor, Wav2Vec2ForCTC
-from torchcodec.decoders import AudioDecoder
-
-# Initialisation modèle Wav2Vec2
-processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base-960h")
-model = Wav2Vec2ForCTC.from_pretrained("facebook/wav2vec2-base-960h")
-device = "cuda" if torch.cuda.is_available() else "cpu"
-model.to(device)
-model.eval()
-
-def analyze_audio(path: str) -> dict:
-    """
-    Lit et analyse un fichier audio pour retourner transcription et score.
-    """
-    # Créer un décodeur pour ce fichier
-    decoder = AudioDecoder(path, sample_rate=16000)
-    waveform, sr = decoder.decode()
-
-    # Convertir en mono si nécessaire
-    if waveform.ndim > 1:
-        waveform = waveform.mean(dim=0)
-
-    # Préparer pour Wav2Vec2
-    inputs = processor(
-        waveform.numpy(), sampling_rate=sr, return_tensors="pt", padding=True
-    )
-    input_values = inputs.input_values.to(device)
-
-    # Inférence
-    with torch.no_grad():
-        logits = model(input_values).logits
-
-    predicted_ids = torch.argmax(logits, dim=-1)
-    transcription = processor.batch_decode(predicted_ids)[0]
-
-    # Score fictif
-    fake_score = torch.rand(1).item()
-
-    return {
-        "transcription": transcription,
-        "fake_score": fake_score
-    }
-"""
-
-"""
-import torchcodec.decoders as d
-dir(d)
-"""
+    except Exception as e:
+        # On print l'erreur complète dans le terminal serveur pour débugger
+        import traceback
+        traceback.print_exc()
+        raise e
