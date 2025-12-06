@@ -1,6 +1,6 @@
 // lib/app/app.dart
 import 'package:flutter/material.dart';
-import '../features/home/presentation/screens/welcome_screen.dart';
+import 'package:voice_deepfake_shield/features/views/welcome_view.dart';
 import 'theme.dart';
 
 class VoiceDeepfakeShieldApp extends StatelessWidget {
