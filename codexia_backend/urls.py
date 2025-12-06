@@ -15,8 +15,26 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
-from django.urls import path
+from django.urls import path, include
+from django.conf import settings
+from django.conf.urls.static import static
+from django.http import HttpResponse, JsonResponse
+
+def index(request):
+    # simple page d'accueil
+    return HttpResponse("<h1>Bienvenue sur Codexia API</h1><p>Accès API: /api/audio/, /api/vision/, /api/notifications/</p>")
 
 urlpatterns = [
+    path("", index, name="home"),  # <-- route racine
     path('admin/', admin.site.urls),
+
+    # API audio
+    path("api/audio/", include("apps.audio.urls")), # http://127.0.0.1:8300/api/audio/
+
+    # API notifications
+    path("api/notifications/", include("apps.notifications.urls")), # http://127.0.0.1:8300/api/notifications/
 ]
+
+# Servir media en dev
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

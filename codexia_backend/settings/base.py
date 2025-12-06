@@ -53,6 +53,8 @@ INSTALLED_APPS = [
     # Third party
     "rest_framework",
     # ajoute ici tes apps : "apps.users", "apps.analyses", ...
+    "apps.audio",
+    "apps.notifications",
 ]
 
 MIDDLEWARE = [
@@ -150,3 +152,13 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Fichiers upload (pour default_storage)
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
+
+# REST Framework (optionnel)
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": [],
+    "DEFAULT_PERMISSION_CLASSES": [],
+}
