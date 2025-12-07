@@ -10,57 +10,42 @@ def analyze_audio(file_path: str) -> dict:
     
     try:
         with open(file_path, 'rb') as f:
-            # Note: Assure-toi que la clé 'audio' est bien ce que le serveur attend
-            # Parfois c'est 'file', parfois 'audio'.
-            response = requests.post(ML_API_URL, files={'audio': f}, timeout=30)
+            # MODIFICATION ICI : On passe à 120 secondes (2 minutes)
+            response = requests.post(ML_API_URL, files={'audio': f}, timeout=120)
 
         response.raise_for_status()
         data = response.json()
         
-        # --- DEBUG CRUCIAL ---
-        # Regarde ce print dans ton terminal Django quand tu fais la requête !
-        print(f"🔍 [DEBUG RAW JSON] Le serveur a répondu : {json.dumps(data, indent=2)}") 
-        # ---------------------
+        print(f"✅ Réponse brute API : {data}")
 
-        # 1. Extraction du Score (Confiance)
-        # On cherche toutes les clés possibles
-        confidence = 0.0
-        possible_score_keys = ['confidence', 'score', 'probability', 'prob', 'fake_prob']
+        # --- MAPPING EXACT (Conservé de l'étape précédente) ---
         
-        for key in possible_score_keys:
-            if key in data:
-                confidence = float(data[key])
-                break
-        
-        # 2. Décision Deepfake
-        is_deepfake = False
-        
-        # Logique A : Basée sur un label textuel
-        if 'class' in data or 'prediction' in data or 'label' in data:
-            label = str(data.get('class') or data.get('prediction') or data.get('label')).lower()
-            # 'spoof' = deepfake, 'bonafide' = réel (standard ASVspoof)
-            if label in ['fake', 'spoof', 'generated', 'deepfake', '1']:
-                is_deepfake = True
-            elif label in ['real', 'bonafide', 'original', '0']:
-                is_deepfake = False
-        
-        # Logique B : Basée sur le score si pas de label
-        # Attention : Parfois 1.0 veut dire "Réel", parfois "Fake".
-        # On suppose ici que le score est une probabilité d'être FAKE.
-        elif confidence > 0.5:
-            is_deepfake = True
+        # 1. Score
+        confidence = float(data.get("deepfake_prob", 0.0))
 
-        # 3. Transcription & Durée
-        transcription = data.get("transcription", data.get("text", "Non disponible"))
-        duration = data.get("duration", data.get("length", 0.0))
+        # 2. Verdict
+        prediction_label = data.get("prediction", "bonafide")
+        is_deepfake = (prediction_label == "deepfake")
 
-        return {
+        # 3. Métadonnées
+        transcription = "Transcription non fournie par le modèle"
+        duration = 0.0 
+
+        result = {
             "status": "success",
             "transcription": transcription,
             "confidence_score": round(confidence, 4),
-            "duration_seconds": round(float(duration), 2),
+            "duration_seconds": duration,
             "is_deepfake": is_deepfake
         }
+        
+        print(f"🚀 Résultat formaté pour DB : {result}")
+        return result
+
+    except requests.exceptions.Timeout:
+        # On capture spécifiquement l'erreur de timeout pour l'afficher clairement
+        print("❌ ERREUR : Le serveur IA est trop lent (Timeout > 120s)")
+        raise Exception("Le serveur IA met trop de temps à répondre. Essayez un fichier plus court.")
 
     except Exception as e:
         print(f"❌ Erreur API ML : {e}")
