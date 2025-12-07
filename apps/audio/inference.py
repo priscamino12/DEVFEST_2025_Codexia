@@ -1,52 +1,88 @@
 # apps/audio/inference.py
-import os
-import requests
-import json
+import torch
+import torchaudio
+from transformers import Wav2Vec2Processor, Wav2Vec2ForCTC
+import numpy as np
 
-ML_API_URL = os.getenv("AUDIO_ML_API_URL", "http://34.63.213.198:8080/predict")
+# --- CHARGEMENT DU MODÈLE (Au démarrage) ---
+print("Chargement du modèle Wav2Vec2...")
+try:
+    PROCESSOR = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base-960h")
+    MODEL = Wav2Vec2ForCTC.from_pretrained("facebook/wav2vec2-base-960h")
+    MODEL.eval()
+    print("Modèle chargé avec succès.")
+except Exception as e:
+    print(f"FATAL ERROR lors du chargement du modèle : {e}")
+
+def load_and_preprocess_audio(file_path: str, target_sr: int = 16000):
+    """
+    Charge un fichier audio, convertit en Mono et Resample à 16kHz.
+    """
+    # torchaudio gère automatiquement wav, mp3, flac via ffmpeg
+    waveform, sample_rate = torchaudio.load(file_path)
+
+    # 1. Conversion Stéréo -> Mono (si nécessaire)
+    if waveform.shape[0] > 1:
+        waveform = torch.mean(waveform, dim=0, keepdim=True)
+
+    # 2. Resampling vers 16000Hz (requis par Wav2Vec2)
+    if sample_rate != target_sr:
+        resampler = torchaudio.transforms.Resample(orig_freq=sample_rate, new_freq=target_sr)
+        waveform = resampler(waveform)
+
+    # On retire la dimension du channel pour avoir un tenseur (N_samples,)
+    return waveform.squeeze()
 
 def analyze_audio(file_path: str) -> dict:
-    print(f"📡 [Inference] Envoi vers {ML_API_URL}...")
-    
+    """
+    Exécute le pipeline complet : Load -> Transcribe -> Score
+    """
     try:
-        with open(file_path, 'rb') as f:
-            # MODIFICATION ICI : On passe à 120 secondes (2 minutes)
-            response = requests.post(ML_API_URL, files={'audio': f}, timeout=120)
-
-        response.raise_for_status()
-        data = response.json()
+        # A. Préparation
+        waveform = load_and_preprocess_audio(file_path)
         
-        print(f"✅ Réponse brute API : {data}")
+        # Sécurité : Si l'audio est trop court (< 0.1s), on rejette
+        if waveform.numel() < 1600: 
+             return {"error": "Audio trop court", "status": "failed"}
 
-        # --- MAPPING EXACT (Conservé de l'étape précédente) ---
+        duration = len(waveform) / 16000
+
+        # B. Tokenization (Conversion audio -> format modèle)
+        inputs = PROCESSOR(
+            waveform, 
+            sampling_rate=16000, 
+            return_tensors="pt", 
+            padding=True
+        )
+
+        # C. Inférence
+        with torch.no_grad():
+            logits = MODEL(inputs.input_values).logits
+
+        # D. Décodage (Logits -> Texte)
+        predicted_ids = torch.argmax(logits, dim=-1)
+        transcription = PROCESSOR.batch_decode(predicted_ids)[0]
+
+        # E. Calcul de confiance (CORRIGÉ)
+        probs = torch.nn.functional.softmax(logits, dim=-1)
         
-        # 1. Score
-        confidence = float(data.get("deepfake_prob", 0.0))
+        # On récupère la probabilité maximale pour chaque pas de temps (frame)
+        # dim=-1 est CRUCIAL pour avoir un tuple (values, indices)
+        max_probs, _ = torch.max(probs, dim=-1) 
+        
+        # On fait la moyenne de ces probabilités maximales
+        confidence = float(max_probs.mean().item())
 
-        # 2. Verdict
-        prediction_label = data.get("prediction", "bonafide")
-        is_deepfake = (prediction_label == "deepfake")
-
-        # 3. Métadonnées
-        transcription = "Transcription non fournie par le modèle"
-        duration = 0.0 
-
-        result = {
+        return {
             "status": "success",
             "transcription": transcription,
             "confidence_score": round(confidence, 4),
-            "duration_seconds": duration,
-            "is_deepfake": is_deepfake
+            "duration_seconds": round(duration, 2),
+            "is_deepfake": False # Placeholder logique
         }
-        
-        print(f"🚀 Résultat formaté pour DB : {result}")
-        return result
-
-    except requests.exceptions.Timeout:
-        # On capture spécifiquement l'erreur de timeout pour l'afficher clairement
-        print("❌ ERREUR : Le serveur IA est trop lent (Timeout > 120s)")
-        raise Exception("Le serveur IA met trop de temps à répondre. Essayez un fichier plus court.")
 
     except Exception as e:
-        print(f"❌ Erreur API ML : {e}")
+        # On print l'erreur complète dans le terminal serveur pour débugger
+        import traceback
+        traceback.print_exc()
         raise e
