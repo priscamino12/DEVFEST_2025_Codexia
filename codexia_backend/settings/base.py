@@ -55,6 +55,7 @@ INSTALLED_APPS = [
     # ajoute ici tes apps : "apps.users", "apps.analyses", ...
     "apps.audio",
     "apps.notifications",
+    'apps.vision',
 ]
 
 MIDDLEWARE = [

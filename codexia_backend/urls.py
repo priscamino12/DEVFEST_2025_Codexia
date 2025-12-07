@@ -33,6 +33,9 @@ urlpatterns = [
 
     # API notifications
     path("api/notifications/", include("apps.notifications.urls")), # http://127.0.0.1:8300/api/notifications/
+    
+    # API image
+    path('api/vision/', include('apps.vision.urls')) # http://127.0.0.1:8300/api/vision/detect/
 ]
 
 # Servir media en dev
