@@ -1,16 +1,14 @@
-# voice_deepfake_shield
+# VOICE DEEPFAKE SHIELD
 
-A new Flutter project.
+C'est une projet android qui permet de savoir si une appel, image, video et audio sont généré par IA ou non
 
-## Getting Started
+# DEVFEST 2025 ALGOMADA
 
-This project is a starting point for a Flutter application.
+C'est une evenement organisé par AlgoMada pendant le DEVFEST 2025 qui se déroule à Antananarivo Madagascar, et on a composé de 03 équipes dont:
+# Prisca: dev frontend
+# David: dev backend
+# Zo Rojo: expert IA
 
-A few resources to get you started if this is your first Flutter project:
-
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+# STACK UTILISÉ
+Puisque le theme du DevFest se focalisait sur l'inteligence artificiel et le google cloud
+On decidait d'utilisé Flutter(Dart) coté front et DJango coté Backend avec des IA
